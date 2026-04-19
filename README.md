@@ -1,6 +1,56 @@
-# Cogni-V Engine
+# Cogni-V Engine — Verification Specification
+**Document ID:** COGNIV-VSPEC-001  
+**Spec Ref:** COGNIV-SPEC-001-FULL v3.0 / SPEC-004-MODULE  
+**Status:** Preliminary — Derived from RTL & UVM Source Analysis  
+**Date:** 2026-04-19
 
-A 3×3 tile-based neural network accelerator implementing a **Mixture-of-Experts (MoE)** datapath in SystemVerilog. The design targets **Xilinx Artix-7 FPGA** for prototyping and is architected for migration to **TSMC 16nm FFC ASIC**.
+---
+
+## Table of Contents
+1. [Introduction](#1-introduction)
+2. [Feature Summary](#2-feature-summary)
+3. [Functional Description](#3-functional-description)
+4. [Interface Description](#4-interface-description)
+5. [Parameterization Options](#5-parameterization-options)
+6. [Register Description](#6-register-description)
+7. [Design Guidelines](#7-design-guidelines)
+8. [Timing Diagrams](#8-timing-diagrams)
+
+---
+
+## 1. Introduction
+
+### 1.1 Overview
+
+The **Cogni-V Engine** is a tile-array neural network accelerator implementing a
+Mixture-of-Experts (MoE) datapath on a 3×3 grid of nine compute tiles. Each tile
+contains a 16-lane MAC array, a 256 KB SRAM weight store, and a Tile Local
+Controller (TLC) FSM. The engine is controlled by a RISC-V host processor via a
+five-instruction Custom Extension (CX) ISA. An Expert Policy Controller (EPC)
+evaluates a 9-expert softmax Top-K gate to enable or disable individual tile
+clocks, providing per-tile dynamic power gating.
+
+The entire design runs at **2 GHz** (0.5 ns clock period) on two phase-aligned
+clocks: `CLK_CORE` (host/CLB domain) and `CLK_NOC`/`CLK_TILE` (tile domain).
+
+### 1.2 Scope
+
+This document specifies the verification requirements, functional behaviour,
+interfaces, registers, and timing of the Cogni-V Engine at **three verification
+levels**:
+
+| Level | DUT Scope | Key Files |
+|-------|-----------|-----------|
+| **Module** | Single `tile_local_ctrl` + sub-modules | `tlc_env_pkg`, `tlc_if`, `tlc_dut_stub` |
+| **Subsystem** | CLB + NoC + EPC + single tile | `cogniv_env_pkg`, adapters |
+| **System** | Full 9-tile array end-to-end | `cogniv_tb_top` |
+
+### 1.3 Document Conventions
+
+- **REQ_ID** — Requirement identifier (REQ_xxx)
+- **TV-xxx** — Test vector identifier as referenced in `cogniv_sequences_pkg.sv`
+- `code` — Signal names, register fields, or file references
+- *(spec ref ss_N.M)* — Cross-reference to COGNIV-SPEC-001-FULL section N.M
 
 ---
 
