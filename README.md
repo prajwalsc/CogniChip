@@ -43,7 +43,7 @@ CogniChip/
 │   └── tlc_uvm_pkg.sv             # Full UVM env for TLC (txn/seq/drv/mon/sb/cov)
 │
 ├── DEPS.yml                       # Simulation dependency and target definitions
-├── cogniv_engine_verification_spec.md  # Full verification specification (COGNIV-VSPEC-001)
+├── cogniv-spec.md                 # Full specification
 └── README.md                      # This file
 ```
 
