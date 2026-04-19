@@ -1,0 +1,327 @@
+=== Command: Set-Location "C:\Users\prajw\Desktop\CogniChip\Design"; $content = @'
+// =============================================================================
+// Module:      cogniv_system
+// Description: Cogni-V Engine — Full 3x3 Tile Array System Integration
+//              COGNIV-SPEC-001 / COGNIV-SPEC-004-MODULE v1.0
+//
+//  Topology (3x3 mesh, tile IDs 0-8, row-major):
+//    [0][1][2]
+//    [3][4][5]
+//    [6][7][8]
+//
+//  Per tile (x9):
+//    - tile_local_ctrl  (TLC FSM, token dispatch/collect, ECC error handling)
+//    - tile_sram_256kb  (64Kx32 SECDED SRAM)
+//    - mac_array_16lane (BF16/INT8 16-lane MAC)
+//    - noc_router_xy    (5-port XY router, 2 VCs, credit-based)
+//    - clb_tile_channel (Host→Tile dispatch channel, 4-credit flow control)
+//    - icg_cell         (Per-tile clock gate, driven by EPC gate_out)
+//
+//  System singletons:
+//    - cx_decode_unit   (CX instruction decoder on host pipeline)
+//    - epc_softmax_topk (Expert Policy Controller, 18-cycle Top-K pipeline)
+//
+//  NoC inter-tile wiring: adjacent tiles connected on matching cardinal ports.
+//  Boundary ports (no neighbour) are tied off.
+//
+//  Clock domains:
+//    CLK_CORE  — RV64 host core clock (cx_decode_unit)
+//    CLK_TILE  — Tile processing clock (all tile logic)
+//    CLK_NOC   — Network-on-Chip clock (NoC routers, CLB channels)
+//    RSTN_CORE, RSTN_TILE, RSTN_NOC — Active-low synchronous resets
+// =============================================================================
+module cogniv_system (
+    // Core clock domain
+    input  logic        CLK_CORE,
+    input  logic        RSTN_CORE,
+
+    // Tile clock domain
+    input  logic        CLK_TILE,
+    input  logic        RSTN_TILE,
+
+    // NoC clock domain
+    input  logic        CLK_NOC,
+    input  logic        RSTN_NOC,
+
+    // CX instruction interface (from RV64 host pipeline)
+    input  logic [31:0] cx_instr_word,
+    input  logic        cx_instr_valid,
+    input  logic [63:0] cx_operand_a,     // rs1 — tile_mask / operand
+    input  logic [63:0] cx_operand_b,     // rs2 — cfg_word / timeout
+
+    // CLB host dispatch interface (one 64-bit half-flit per write)
+    // Host writes pkt_hi then pkt_lo to dispatch a 128-bit micro-op to a tile
+    input  logic [63:0] clb_pkt_hi_in,    // upper 64b of micro-op packet
+    input  logic [63:0] clb_pkt_lo_in,    // lower 64b of micro-op packet
+    input  logic [8:0]  clb_pkt_hi_wr,    // per-tile write strobe for hi half
+    input  logic [8:0]  clb_pkt_lo_wr,    // per-tile write strobe for lo half
+    input  logic [8:0]  clb_tile_ack,     // per-tile credit return from tile
+
+    // EPC gate evaluation interface
+    input  logic        epc_eval_start,
+    input  logic [1:0]  epc_k_cfg,
+    input  logic signed [15:0] epc_logit_in [0:8],
+
+    // System status outputs
+    output logic [8:0]  tile_done,        // per-tile operation complete
+    output logic [8:0]  tile_error,       // per-tile ECC uncorrectable error
+    output logic [8:0]  clb_stall,        // per-tile CLB credit=0 stall
+    output logic [8:0]  clb_overflow_err, // per-tile CLB FIFO overflow
+    output logic [8:0]  clb_parity_err,   // per-tile parity error on received pkt
+
+    // CX decode outputs
+    output logic [2:0]  cx_opcode,
+    output logic [8:0]  cx_tile_mask,
+    output logic        cx_decode_valid,
+    output logic        cx_illegal_instr,
+
+    // EPC outputs
+    output logic [8:0]  epc_gate_out,
+    output logic        epc_gate_out_valid,
+    output logic        epc_topk_tie,
+    output logic        epc_invalid_k,
+
+    // Scan test enable
+    input  logic        scan_te
+);
+
+    // =========================================================================
+    // Parameters
+    // =========================================================================
+    localparam int TILES    = 9;
+    localparam int FLIT_W   = 128;
+    localparam int ROWS     = 3;
+    localparam int COLS     = 3;
+
+    // =========================================================================
+    // CX Instruction Decoder (singleton, host core clock domain)
+    // =========================================================================
+    logic [63:0] cx_op_a_out, cx_op_b_out;
+
+    cx_decode_unit u_cx_decode (
+        .CLK_CORE     (CLK_CORE),
+        .RSTN_SYNC    (RSTN_CORE),
+        .instr_word   (cx_instr_word),
+        .instr_valid  (cx_instr_valid),
+        .operand_a    (cx_operand_a),
+        .operand_b    (cx_operand_b),
+        .cx_opcode    (cx_opcode),
+        .tile_mask    (cx_tile_mask),
+        .op_a_out     (cx_op_a_out),
+        .op_b_out     (cx_op_b_out),
+        .decode_valid (cx_decode_valid),
+        .illegal_instr(cx_illegal_instr)
+    );
+
+    // =========================================================================
+    // EPC Softmax Top-K (singleton, tile clock domain)
+    // =========================================================================
+    logic [8:0] epc_icg_enable;
+
+    epc_softmax_topk u_epc (
+        .CLK_TILE        (CLK_TILE),
+        .RSTN_TILE       (RSTN_TILE),
+        .eval_start      (epc_eval_start),
+        .k_cfg           (epc_k_cfg),
+        .logit_in        (epc_logit_in),
+        .gate_out        (epc_gate_out),
+        .gate_out_valid  (epc_gate_out_valid),
+        .topk_tie        (epc_topk_tie),
+        .invalid_k       (epc_invalid_k),
+        .icg_enable      (epc_icg_enable)
+    );
+
+    // =========================================================================
+    // Per-tile instances
+    // =========================================================================
+
+    // ---- ICG gated clocks (one per tile) ------------------------------------
+    logic gclk_tile [0:TILES-1];
+
+    genvar ti;
+    generate
+        for (ti = 0; ti < TILES; ti++) begin : g_icg
+            icg_cell u_icg (
+                .CLK  (CLK_TILE),
+                .EN   (epc_icg_enable[ti]),
+                .TE   (scan_te),
+                .GCLK (gclk_tile[ti])
+            );
+        end
+    endgenerate
+
+    // ---- SRAM signals -------------------------------------------------------
+    logic [15:0] sram_addr        [0:TILES-1];
+    logic [31:0] sram_wdata       [0:TILES-1];
+    logic [31:0] sram_rdata       [0:TILES-1];
+    logic        sram_we          [0:TILES-1];
+    logic        sram_ecc_err_1b  [0:TILES-1];
+    logic        sram_ecc_err_2b  [0:TILES-1];
+    logic [31:0] sram_ecc_corrected[0:TILES-1];
+
+    // ---- MAC signals --------------------------------------------------------
+    logic [511:0] mac_weight_data [0:TILES-1];
+    logic [31:0]  mac_act_data    [0:TILES-1];
+    logic         mac_en          [0:TILES-1];
+    logic         mac_drain       [0:TILES-1];
+    logic [511:0] mac_result      [0:TILES-1];
+    logic         mac_result_vld  [0:TILES-1];
+
+    // ---- TLC control/status -------------------------------------------------
+    logic [31:0] tlc_cfg_reg   [0:TILES-1];
+    logic [2:0]  tlc_state     [0:TILES-1];
+
+    // ---- NoC flit buses (TLC ↔ router local port) ---------------------------
+    logic [FLIT_W-1:0] tlc_noc_in_flit  [0:TILES-1];
+    logic              tlc_noc_in_vld   [0:TILES-1];
+    logic              tlc_noc_in_rdy   [0:TILES-1];
+    logic [FLIT_W-1:0] tlc_noc_out_flit [0:TILES-1];
+    logic              tlc_noc_out_vld  [0:TILES-1];
+
+    // ---- CLB → router local inject ------------------------------------------
+    logic [FLIT_W-1:0] clb_noc_flit_out [0:TILES-1];
+    logic              clb_noc_flit_vld  [0:TILES-1];
+    logic              clb_noc_flit_rdy  [0:TILES-1];
+    logic [2:0]        clb_credit_cnt    [0:TILES-1];
+
+    // ---- NoC inter-router wires [tile][port]: W=0,E=1,N=2,S=3 --------------
+    // flit_out of tile A port P connects to flit_in of neighbour tile B
+    logic [FLIT_W-1:0] r_flit_out [0:TILES-1][0:3];
+    logic              r_vld_out  [0:TILES-1][0:3];
+    logic              r_rdy_out  [0:TILES-1][0:3];
+
+    // =========================================================================
+    // Tile instances (TLC + SRAM + MAC + NoC router + CLB)
+    // =========================================================================
+    generate
+        for (ti = 0; ti < TILES; ti++) begin : g_tile
+
+            // ------ Tile Local Controller ------------------------------------
+            tile_local_ctrl u_tlc (
+                .CLK_TILE         (gclk_tile[ti]),
+                .RSTN_TILE        (RSTN_TILE),
+                .noc_flit_in      (tlc_noc_in_flit[ti]),
+                .noc_flit_in_vld  (tlc_noc_in_vld[ti]),
+                .noc_flit_in_rdy  (tlc_noc_in_rdy[ti]),
+                .noc_flit_out     (tlc_noc_out_flit[ti]),
+                .noc_flit_out_vld (tlc_noc_out_vld[ti]),
+                .noc_flit_out_rdy (1'b1),  // router local always ready
+                .sram_addr        (sram_addr[ti]),
+                .sram_wdata       (sram_wdata[ti]),
+                .sram_rdata       (sram_rdata[ti]),
+                .sram_we          (sram_we[ti]),
+                .sram_ecc_err_1b  (sram_ecc_err_1b[ti]),
+                .sram_ecc_err_2b  (sram_ecc_err_2b[ti]),
+                .mac_weight_data  (mac_weight_data[ti]),
+                .mac_act_data     (mac_act_data[ti]),
+                .mac_en           (mac_en[ti]),
+                .mac_drain        (mac_drain[ti]),
+                .mac_result       (mac_result[ti]),
+                .mac_result_vld   (mac_result_vld[ti]),
+                .cfg_reg          (tlc_cfg_reg[ti]),
+                .tile_done        (tile_done[ti]),
+                .tile_error       (tile_error[ti]),
+                .tlc_state        (tlc_state[ti])
+            );
+
+            // ------ Tile SRAM ------------------------------------------------
+            tile_sram_256kb u_sram (
+                .CLK_TILE           (gclk_tile[ti]),
+                .RSTN_TILE          (RSTN_TILE),
+                .addr               (sram_addr[ti]),
+                .wdata              (sram_wdata[ti]),
+                .rdata              (sram_rdata[ti]),
+                .we                 (sram_we[ti]),
+                .ecc_err_1b         (sram_ecc_err_1b[ti]),
+                .ecc_err_2b         (sram_ecc_err_2b[ti]),
+                .ecc_corrected_data (sram_ecc_corrected[ti]),
+                .retention_vdd      (1'b1)
+            );
+
+            // ------ MAC Array ------------------------------------------------
+            mac_array_16lane u_mac (
+                .CLK_TILE    (gclk_tile[ti]),
+                .RSTN_TILE   (RSTN_TILE),
+                .precision   (tlc_cfg_reg[ti][15]),
+                .acc_mode    (tlc_cfg_reg[ti][12]),
+                .weight_data (mac_weight_data[ti]),
+                .act_data    (mac_act_data[ti]),
+                .mac_en      (mac_en[ti]),
+                .mac_drain   (mac_drain[ti]),
+                .result_data (mac_result[ti]),
+                .result_vld  (mac_result_vld[ti])
+            );
+
+            // ------ CLB Tile Channel -----------------------------------------
+            clb_tile_channel u_clb (
+                .CLK_NOC      (CLK_NOC),
+                .RSTN_SYNC    (RSTN_NOC),
+                .pkt_hi_in    (clb_pkt_hi_in),
+                .pkt_lo_in    (clb_pkt_lo_in),
+                .pkt_hi_wr    (clb_pkt_hi_wr[ti]),
+                .pkt_lo_wr    (clb_pkt_lo_wr[ti]),
+                .noc_flit_out (clb_noc_flit_out[ti]),
+                .noc_flit_vld (clb_noc_flit_vld[ti]),
+                .noc_flit_rdy (clb_noc_flit_rdy[ti]),
+                .tile_ack_in  (clb_tile_ack[ti]),
+                .credit_cnt   (clb_credit_cnt[ti]),
+                .stall_out    (clb_stall[ti]),
+                .overflow_err (clb_overflow_err[ti]),
+                .parity_err   (clb_parity_err[ti]),
+                .pkt_hi_valid ()  // unused at system level
+            );
+
+            // ------ NoC Router XY --------------------------------------------
+            noc_router_xy #(.TILE_ID(ti)) u_router (
+                .CLK_NOC       (CLK_NOC),
+                .RSTN_SYNC     (RSTN_NOC),
+                // West port
+                .flit_in_west  (r_flit_out[(ti % COLS > 0) ? ti-1 : ti][1]),
+                .vld_in_west   (r_vld_out [(ti % COLS > 0) ? ti-1 : ti][1]),
+                .rdy_in_west   (r_rdy_out [(ti % COLS > 0) ? ti-1 : ti][1]),
+                .flit_out_west (r_flit_out[ti][0]),
+                .vld_out_west  (r_vld_out [ti][0]),
+                .rdy_out_west  (r_rdy_out [ti][0]),
+                // East port
+                .flit_in_east  (r_flit_out[(ti % COLS < COLS-1) ? ti+1 : ti][0]),
+                .vld_in_east   (r_vld_out [(ti % COLS < COLS-1) ? ti+1 : ti][0]),
+                .rdy_in_east   (r_rdy_out [(ti % COLS < COLS-1) ? ti+1 : ti][0]),
+                .flit_out_east (r_flit_out[ti][1]),
+                .vld_out_east  (r_vld_out [ti][1]),
+                .rdy_out_east  (r_rdy_out [ti][1]),
+                // North port
+                .flit_in_north (r_flit_out[(ti / COLS > 0) ? ti-COLS : ti][3]),
+                .vld_in_north  (r_vld_out [(ti / COLS > 0) ? ti-COLS : ti][3]),
+                .rdy_in_north  (r_rdy_out [(ti / COLS > 0) ? ti-COLS : ti][3]),
+                .flit_out_north(r_flit_out[ti][2]),
+                .vld_out_north (r_vld_out [ti][2]),
+                .rdy_out_north (r_rdy_out [ti][2]),
+                // South port
+                .flit_in_south (r_flit_out[(ti / COLS < ROWS-1) ? ti+COLS : ti][2]),
+                .vld_in_south  (r_vld_out [(ti / COLS < ROWS-1) ? ti+COLS : ti][2]),
+                .rdy_in_south  (r_rdy_out [(ti / COLS < ROWS-1) ? ti+COLS : ti][2]),
+                .flit_out_south(r_flit_out[ti][3]),
+                .vld_out_south (r_vld_out [ti][3]),
+                .rdy_out_south (r_rdy_out [ti][3]),
+                // Local port: CLB inject (host→tile) muxed with TLC result (tile→host)
+                // Priority: TLC result output; CLB inject when TLC not sending
+                .flit_in_local (tlc_noc_out_vld[ti] ? tlc_noc_out_flit[ti] :
+                                                       clb_noc_flit_out[ti]),
+                .vld_in_local  (tlc_noc_out_vld[ti] | clb_noc_flit_vld[ti]),
+                .rdy_in_local  (clb_noc_flit_rdy[ti]),
+                .flit_out_local(tlc_noc_in_flit[ti]),
+                .vld_out_local (tlc_noc_in_vld[ti]),
+                .rdy_out_local (tlc_noc_in_rdy[ti])
+            );
+
+        end
+    endgenerate
+
+endmodule : cogniv_system
+'@; Set-Content -Path "cogniv_system.sv" -Value $content -Encoding UTF8; Write-Host "cogniv_system.sv written" (2026-04-19T04:34:06.609Z) ===
+Exit Code: 0
+Output:
+cogniv_system.sv written
+
+=== End Output ===
+

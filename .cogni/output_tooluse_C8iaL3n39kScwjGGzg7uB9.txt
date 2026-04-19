@@ -1,0 +1,21 @@
+=== Command: Set-Location "C:\Users\prajw\Desktop\CogniChip\Design"; Get-ChildItem -Name "*.sv" | Sort-Object (2026-04-19T04:23:26.655Z) ===
+Exit Code: 0
+Output:
+clb_tile_channel.sv
+epc_softmax_topk.sv
+icg_cell.sv
+mac_array_16lane.sv
+noc_router_xy.sv
+tb_clb_tile_channel.sv
+tb_cx_decode_unit.sv
+tb_epc_softmax_topk.sv
+tb_icg_cell.sv
+tb_mac_array_16lane.sv
+tb_noc_router_xy.sv
+tb_tile_local_ctrl.sv
+tb_tile_sram_256kb.sv
+tile_local_ctrl.sv
+tile_sram_256kb.sv
+
+=== End Output ===
+

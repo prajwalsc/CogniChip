@@ -1,0 +1,42 @@
+=== Command: Set-Location "C:\Users\prajw\Desktop\CogniChip\Design"; $tb_icg = @'
+// =============================================================================
+// File:        tb_icg_cell.sv
+// Description: Unit testbench for icg_cell
+// Tests: gate-off, gate-on, TE scan bypass, de-assert hold timing
+// =============================================================================
+`timescale 1ns/1ps
+module tb_icg_cell;
+    logic CLK = 0, EN = 0, TE = 0, GCLK;
+    always #0.25 CLK = ~CLK;
+    icg_cell dut (.CLK(CLK),.EN(EN),.TE(TE),.GCLK(GCLK));
+    int pass_cnt=0, fail_cnt=0;
+    task automatic chk(string msg,logic got,logic exp);
+        if(got===exp) begin $display("PASS [%0t] %s",$time,msg); pass_cnt++; end
+        else begin $display("FAIL [%0t] %s: got=%0b exp=%0b",$time,msg,got,exp); fail_cnt++; end
+    endtask
+    initial begin
+        $dumpfile("tb_icg_cell.fst"); $dumpvars(0,tb_icg_cell);
+        EN=0; TE=0; repeat(4) @(posedge CLK); #0.05;
+        chk("T1: EN=0 gate closed",GCLK,1'b0);
+        @(negedge CLK); #0.05; EN=1;
+        @(posedge CLK); #0.05; chk("T2: EN=1 GCLK=1",GCLK,1'b1);
+        @(negedge CLK); #0.05; chk("T2: EN=1 GCLK=0",GCLK,1'b0);
+        @(negedge CLK); #0.05; EN=0;
+        @(posedge CLK); #0.05; chk("T3: EN=0 gated",GCLK,1'b0);
+        EN=0; TE=1; @(negedge CLK); #0.05;
+        @(posedge CLK); #0.05; chk("T4: TE=1 scan bypass",GCLK,1'b1);
+        TE=0; @(negedge CLK); #0.05;
+        @(posedge CLK); #0.05; chk("T5: TE=0 gated",GCLK,1'b0);
+        repeat(4) @(posedge CLK);
+        $display("=== tb_icg_cell: PASS=%0d FAIL=%0d ===",pass_cnt,fail_cnt);
+        $finish;
+    end
+    initial begin #500; $display("TIMEOUT"); $finish; end
+endmodule : tb_icg_cell
+'@; Set-Content -Path "tb_icg_cell.sv" -Value $tb_icg -Encoding UTF8; Write-Host "tb_icg_cell.sv written" (2026-04-19T04:20:25.947Z) ===
+Exit Code: 0
+Output:
+tb_icg_cell.sv written
+
+=== End Output ===
+

@@ -1,0 +1,7 @@
+=== Command: Set-Location "C:\Users\prajw\Desktop\CogniChip\Design"; Get-ChildItem -Name "tb_*.sv", "noc_router_xy.sv" | Sort-Object (2026-04-19T04:20:07.114Z) ===
+Exit Code: 0
+Output:
+noc_router_xy.sv
+
+=== End Output ===
+

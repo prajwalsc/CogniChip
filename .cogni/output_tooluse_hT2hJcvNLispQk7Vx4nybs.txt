@@ -1,0 +1,65 @@
+=== Command: Set-Location "C:\Users\prajw\Desktop\CogniChip\Design"; $content = @'
+// =============================================================================
+// File:        tb_tile_sram_256kb.sv
+// Description: Unit testbench for tile_sram_256kb — 64Kx32 SECDED SRAM
+//              Tests: basic R/W, all-zero/ones, walking-1 pattern
+// =============================================================================
+`timescale 1ns/1ps
+module tb_tile_sram_256kb;
+    logic CLK_TILE=0, RSTN_TILE=0;
+    logic [15:0] addr; logic [31:0] wdata, rdata; logic we;
+    logic ecc_err_1b, ecc_err_2b; logic [31:0] ecc_corrected_data;
+    logic retention_vdd=1;
+    always #0.25 CLK_TILE=~CLK_TILE;
+    tile_sram_256kb dut(.*);
+    int pass_cnt=0, fail_cnt=0;
+    task automatic chk32(string msg,logic[31:0] got,logic[31:0] exp);
+        if(got===exp) begin $display("PASS [%0t] %s: 0x%08h",$time,msg,got); pass_cnt++; end
+        else begin $display("FAIL [%0t] %s: got=0x%08h exp=0x%08h",$time,msg,got,exp); fail_cnt++; end
+    endtask
+    task automatic chk1(string msg,logic got,logic exp);
+        if(got===exp) begin $display("PASS [%0t] %s",$time,msg); pass_cnt++; end
+        else begin $display("FAIL [%0t] %s: got=%0b exp=%0b",$time,msg,got,exp); fail_cnt++; end
+    endtask
+    task automatic sram_wr(input logic[15:0] a, input logic[31:0] d);
+        @(posedge CLK_TILE); #0.05; addr=a; wdata=d; we=1;
+        @(posedge CLK_TILE); #0.05; we=0;
+    endtask
+    task automatic sram_rd(input logic[15:0] a, output logic[31:0] q);
+        @(posedge CLK_TILE); #0.05; addr=a; we=0;
+        @(posedge CLK_TILE); #0.05; q=rdata;
+    endtask
+    initial begin
+        $dumpfile("tb_tile_sram_256kb.fst"); $dumpvars(0,tb_tile_sram_256kb);
+        we=0; addr=0; wdata=0;
+        RSTN_TILE=0; repeat(5) @(posedge CLK_TILE); RSTN_TILE=1; repeat(2) @(posedge CLK_TILE);
+        sram_wr(16'h0000,32'hDEAD_BEEF); sram_wr(16'h0001,32'hCAFE_BABE); sram_wr(16'hFFFF,32'hA5A5_5A5A);
+        begin logic[31:0] q;
+            sram_rd(16'h0000,q); chk32("R/W 0x0000",q,32'hDEAD_BEEF);
+            sram_rd(16'h0001,q); chk32("R/W 0x0001",q,32'hCAFE_BABE);
+            sram_rd(16'hFFFF,q); chk32("R/W 0xFFFF",q,32'hA5A5_5A5A);
+        end
+        @(posedge CLK_TILE); #0.05;
+        chk1("No 1b err on clean read",ecc_err_1b,1'b0);
+        chk1("No 2b err on clean read",ecc_err_2b,1'b0);
+        sram_wr(16'h0010,32'h0000_0000); sram_wr(16'h0011,32'hFFFF_FFFF);
+        begin logic[31:0] q;
+            sram_rd(16'h0010,q); chk32("All-zero",q,32'h0);
+            sram_rd(16'h0011,q); chk32("All-ones",q,32'hFFFF_FFFF);
+        end
+        for(int b=0;b<32;b++) sram_wr(16'h0100+16'(b),32'(1<<b));
+        for(int b=0;b<32;b++) begin logic[31:0] q; sram_rd(16'h0100+16'(b),q);
+            chk32($sformatf("Walking-1 bit%0d",b),q,32'(1<<b)); end
+        repeat(4) @(posedge CLK_TILE);
+        $display("=== tb_tile_sram_256kb: PASS=%0d FAIL=%0d ===",pass_cnt,fail_cnt);
+        $finish;
+    end
+    initial begin #10000; $display("TIMEOUT"); $finish; end
+endmodule : tb_tile_sram_256kb
+'@; Set-Content -Path "tb_tile_sram_256kb.sv" -Value $content -Encoding UTF8; Write-Host "tb_tile_sram_256kb.sv written" (2026-04-19T04:20:55.951Z) ===
+Exit Code: 0
+Output:
+tb_tile_sram_256kb.sv written
+
+=== End Output ===
+

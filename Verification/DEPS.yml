@@ -1,0 +1,126 @@
+# ============================================================================
+# DEPS.yml — Cogni-V Engine Verification
+# Compilation order: packages first (no UVM dependency), then UVM packages,
+# then interface, then stub/DUT, then top-level modules.
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Shared foundation layer (no UVM; compile once, reuse everywhere)
+# ---------------------------------------------------------------------------
+cogniv_common_pkg:
+  deps:
+    - cogniv_common_pkg.sv
+
+cogniv_txn_pkg:
+  deps:
+    - cogniv_common_pkg
+    - cogniv_txn_pkg.sv
+
+cogniv_adapter_pkg:
+  deps:
+    - cogniv_common_pkg
+    - cogniv_txn_pkg
+    - cogniv_adapter_pkg.sv
+
+cogniv_sb_cov_pkg:
+  deps:
+    - cogniv_common_pkg
+    - cogniv_txn_pkg
+    - cogniv_sb_cov_pkg.sv
+
+# ---------------------------------------------------------------------------
+# Module-level TLC UVM VIP (tlc_if → stub → tlc_uvm_pkg → env → sequences → tests)
+# ---------------------------------------------------------------------------
+tlc_if:
+  deps:
+    - tlc_if.sv
+
+tlc_uvm_pkg:
+  deps:
+    - cogniv_common_pkg
+    - tlc_if
+    - tlc_uvm_pkg.sv
+
+tlc_env_pkg:
+  deps:
+    - cogniv_common_pkg
+    - tlc_uvm_pkg
+    - tlc_env_pkg.sv
+
+tlc_sequences_pkg:
+  deps:
+    - cogniv_common_pkg
+    - tlc_uvm_pkg
+    - tlc_sequences.sv
+
+tlc_tests_pkg:
+  deps:
+    - cogniv_common_pkg
+    - tlc_uvm_pkg
+    - tlc_env_pkg
+    - tlc_sequences_pkg
+    - tlc_tests.sv
+
+# ---------------------------------------------------------------------------
+# TLC module-level testbench (pre-RTL: stub as DUT)
+# Run with: +UVM_TESTNAME=tlc_tv007_test  (or any tlc_*_test)
+# ---------------------------------------------------------------------------
+bench_tlc_uvm:
+  deps:
+    - cogniv_common_pkg
+    - tlc_if
+    - tlc_uvm_pkg
+    - tlc_env_pkg
+    - tlc_sequences_pkg
+    - tlc_tests_pkg
+    - tlc_dut_stub.sv
+    - tlc_tb_top.sv
+  top: tlc_tb_top
+
+# ---------------------------------------------------------------------------
+# Cogni-V full-chip/subsystem environment
+# ---------------------------------------------------------------------------
+cogniv_env_pkg:
+  deps:
+    - cogniv_common_pkg
+    - cogniv_txn_pkg
+    - cogniv_adapter_pkg
+    - cogniv_sb_cov_pkg
+    - tlc_uvm_pkg
+    - cogniv_env_pkg.sv
+
+cogniv_sequences_pkg:
+  deps:
+    - cogniv_common_pkg
+    - cogniv_txn_pkg
+    - cogniv_env_pkg
+    - cogniv_sequences_pkg.sv
+
+cogniv_tests_pkg:
+  deps:
+    - cogniv_common_pkg
+    - cogniv_txn_pkg
+    - cogniv_adapter_pkg
+    - cogniv_env_pkg
+    - cogniv_sequences_pkg
+    - cogniv_tests_pkg.sv
+
+# ---------------------------------------------------------------------------
+# Full system testbench (9-tile, pre-RTL mode with stubs)
+# Run with: +UVM_TESTNAME=tv007_test  (or any tv00X_test)
+# ---------------------------------------------------------------------------
+bench_cogniv_system:
+  deps:
+    - cogniv_common_pkg
+    - cogniv_txn_pkg
+    - cogniv_adapter_pkg
+    - cogniv_sb_cov_pkg
+    - tlc_uvm_pkg
+    - tlc_env_pkg
+    - cogniv_env_pkg
+    - cogniv_sequences_pkg
+    - cogniv_tests_pkg
+    - tlc_if
+    - tlc_dut_stub.sv
+    - cogniv_tb_top.sv
+  top: cogniv_tb_top

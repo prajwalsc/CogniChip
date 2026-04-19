@@ -1,0 +1,47 @@
+bench_tile_local_ctrl:
+  deps:
+    - tile_local_ctrl.sv
+    - tb_tile_local_ctrl.sv
+  top: tb_tile_local_ctrl
+
+bench_mac_array_16lane:
+  deps:
+    - mac_array_16lane.sv
+    - tb_mac_array_16lane.sv
+  top: tb_mac_array_16lane
+
+bench_tile_sram_256kb:
+  deps:
+    - tile_sram_256kb.sv
+    - tb_tile_sram_256kb.sv
+  top: tb_tile_sram_256kb
+
+bench_clb_tile_channel:
+  deps:
+    - clb_tile_channel.sv
+    - tb_clb_tile_channel.sv
+  top: tb_clb_tile_channel
+
+bench_epc_softmax_topk:
+  deps:
+    - epc_softmax_topk.sv
+    - tb_epc_softmax_topk.sv
+  top: tb_epc_softmax_topk
+
+bench_noc_router_xy:
+  deps:
+    - noc_router_xy.sv
+    - tb_noc_router_xy.sv
+  top: tb_noc_router_xy
+
+bench_icg_cell:
+  deps:
+    - icg_cell.sv
+    - tb_icg_cell.sv
+  top: tb_icg_cell
+
+bench_cx_decode_unit:
+  deps:
+    - cx_decode_unit.sv
+    - tb_cx_decode_unit.sv
+  top: tb_cx_decode_unit
