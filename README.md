@@ -123,5 +123,3 @@ All 8 unit-level benchmarks pass with **189 checks, 0 failures**.
 ## Documentation
 
 Full specification: COGNIV-SPEC.md
-
-Covers: 25 functional requirements, 15 directed test vectors, complete interface tables (TLC, CLB, NoC, EPC, system top), register map, timing diagrams (WaveDrom), UVM testbench architecture, regression plan (3-tier), and sign-off criteria.
