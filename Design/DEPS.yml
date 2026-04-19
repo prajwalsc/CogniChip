@@ -45,3 +45,30 @@ bench_cx_decode_unit:
     - cx_decode_unit.sv
     - tb_cx_decode_unit.sv
   top: tb_cx_decode_unit
+
+bench_cogniv_system:
+  deps:
+    - icg_cell.sv
+    - cx_decode_unit.sv
+    - epc_softmax_topk.sv
+    - tile_sram_256kb.sv
+    - mac_array_16lane.sv
+    - clb_tile_channel.sv
+    - noc_router_xy.sv
+    - tile_local_ctrl.sv
+    - cogniv_system.sv
+    - tb_cogniv_system.sv
+  top: tb_cogniv_system
+
+synth_cogniv_system:
+  deps:
+    - icg_cell.sv
+    - cx_decode_unit.sv
+    - epc_softmax_topk.sv
+    - tile_sram_256kb.sv
+    - mac_array_16lane.sv
+    - clb_tile_channel.sv
+    - noc_router_xy.sv
+    - tile_local_ctrl.sv
+    - cogniv_system.sv
+  top: cogniv_system

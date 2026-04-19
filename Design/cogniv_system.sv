@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // Module:      cogniv_system
 // Description: Cogni-V Engine — Full 3x3 Tile Array System Integration
 //              COGNIV-SPEC-001 / COGNIV-SPEC-004-MODULE v1.0
@@ -187,7 +187,11 @@ module cogniv_system (
     // flit_out of tile A port P connects to flit_in of neighbour tile B
     logic [FLIT_W-1:0] r_flit_out [0:TILES-1][0:3];
     logic              r_vld_out  [0:TILES-1][0:3];
-    logic              r_rdy_out  [0:TILES-1][0:3];
+    // r_rdy_in[ti][p]: backpressure OUTPUT of tile ti port p (rdy_in_* of router).
+    // Kept separate from r_flit_out/r_vld_out to avoid multiple-driver collisions
+    // at mesh boundaries where the old shared r_rdy_out array was written by two
+    // different router instances onto the same net.
+    logic              r_rdy_in   [0:TILES-1][0:3];
 
     // =========================================================================
     // Tile instances (TLC + SRAM + MAC + NoC router + CLB)
@@ -277,31 +281,31 @@ module cogniv_system (
                 // West port
                 .flit_in_west  (r_flit_out[(ti % COLS > 0) ? ti-1 : ti][1]),
                 .vld_in_west   (r_vld_out [(ti % COLS > 0) ? ti-1 : ti][1]),
-                .rdy_in_west   (r_rdy_out [(ti % COLS > 0) ? ti-1 : ti][1]),
+                .rdy_in_west   (r_rdy_in[ti][0]),
                 .flit_out_west (r_flit_out[ti][0]),
                 .vld_out_west  (r_vld_out [ti][0]),
-                .rdy_out_west  (r_rdy_out [ti][0]),
+                .rdy_out_west  ((ti % COLS > 0)      ? r_rdy_in[ti-1][1]     : 1'b1),
                 // East port
                 .flit_in_east  (r_flit_out[(ti % COLS < COLS-1) ? ti+1 : ti][0]),
                 .vld_in_east   (r_vld_out [(ti % COLS < COLS-1) ? ti+1 : ti][0]),
-                .rdy_in_east   (r_rdy_out [(ti % COLS < COLS-1) ? ti+1 : ti][0]),
+                .rdy_in_east   (r_rdy_in[ti][1]),
                 .flit_out_east (r_flit_out[ti][1]),
                 .vld_out_east  (r_vld_out [ti][1]),
-                .rdy_out_east  (r_rdy_out [ti][1]),
+                .rdy_out_east  ((ti % COLS < COLS-1) ? r_rdy_in[ti+1][0]     : 1'b1),
                 // North port
                 .flit_in_north (r_flit_out[(ti / COLS > 0) ? ti-COLS : ti][3]),
                 .vld_in_north  (r_vld_out [(ti / COLS > 0) ? ti-COLS : ti][3]),
-                .rdy_in_north  (r_rdy_out [(ti / COLS > 0) ? ti-COLS : ti][3]),
+                .rdy_in_north  (r_rdy_in[ti][2]),
                 .flit_out_north(r_flit_out[ti][2]),
                 .vld_out_north (r_vld_out [ti][2]),
-                .rdy_out_north (r_rdy_out [ti][2]),
+                .rdy_out_north ((ti / COLS > 0)      ? r_rdy_in[ti-COLS][3]  : 1'b1),
                 // South port
                 .flit_in_south (r_flit_out[(ti / COLS < ROWS-1) ? ti+COLS : ti][2]),
                 .vld_in_south  (r_vld_out [(ti / COLS < ROWS-1) ? ti+COLS : ti][2]),
-                .rdy_in_south  (r_rdy_out [(ti / COLS < ROWS-1) ? ti+COLS : ti][2]),
+                .rdy_in_south  (r_rdy_in[ti][3]),
                 .flit_out_south(r_flit_out[ti][3]),
                 .vld_out_south (r_vld_out [ti][3]),
-                .rdy_out_south (r_rdy_out [ti][3]),
+                .rdy_out_south ((ti / COLS < ROWS-1) ? r_rdy_in[ti+COLS][2]  : 1'b1),
                 // Local port: CLB inject (host→tile) muxed with TLC result (tile→host)
                 // Priority: TLC result output; CLB inject when TLC not sending
                 .flit_in_local (tlc_noc_out_vld[ti] ? tlc_noc_out_flit[ti] :
