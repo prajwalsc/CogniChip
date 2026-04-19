@@ -1,4 +1,4 @@
-# Cogni-V Engine — Verification Specification
+# Cogni-V Engine — Specification
 **Document ID:** COGNIV-VSPEC-001  
 **Spec Ref:** COGNIV-SPEC-001-FULL v3.0 / SPEC-004-MODULE  
 **Status:** Preliminary — Derived from RTL & UVM Source Analysis  
