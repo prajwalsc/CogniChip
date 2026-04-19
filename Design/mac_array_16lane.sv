@@ -126,6 +126,10 @@ module mac_array_16lane (
         logic [24:0] man_a_ext, man_b_ext, man_sum;
         logic [22:0] man_r;
 
+        // Handle zero operands: full-word zero check covers +0.0 and -0.0
+        if (a == 32'h0000_0000) return b;
+        if (b == 32'h0000_0000) return a;
+
         sign_a = a[31];
         sign_b = b[31];
         exp_a  = a[30:23];
@@ -185,39 +189,41 @@ module mac_array_16lane (
 
     // -------------------------------------------------------------------------
     // MAC execution — per lane
-    // Local working variables hoisted to module scope for synthesis portability
     // -------------------------------------------------------------------------
-    integer l;
-    logic [31:0] mac_w, mac_new, mac_base;
-    logic [31:0] mac_fp32_wA, mac_fp32_wB, mac_fp32_aA, mac_fp32_aB;
-    logic [31:0] mac_prodA, mac_prodB;
-
     always_ff @(posedge CLK_TILE) begin
+        // Local temporaries declared inside the block to avoid
+        // cross-process sharing issues with Verilator
+        logic [31:0] mac_w_v, mac_new_v, mac_base_v;
+        logic [31:0] fp32_wA_v, fp32_wB_v, fp32_aA_v, fp32_aB_v;
+        logic [31:0] prodA_v, prodB_v;
         if (!RSTN_TILE) begin
-            for (l = 0; l < LANES; l++) acc[l] <= 32'h0;
+            for (int ll = 0; ll < LANES; ll++) acc[ll] <= 32'h0;
+        end else if (mac_drain) begin
+            // Clear accumulators after drain so next compute batch starts from zero
+            for (int ll = 0; ll < LANES; ll++) acc[ll] <= 32'h0;
         end else if (mac_en) begin
-            for (l = 0; l < LANES; l++) begin
-                mac_w    = weight_data[32*l +: 32];
-                mac_base = (acc_mode == 1'b0 && !acc_init_done_r) ? 32'h0 : acc[l];
+            for (int ll = 0; ll < LANES; ll++) begin
+                mac_w_v    = weight_data[32*ll +: 32];
+                mac_base_v = (acc_mode == 1'b0 && !acc_init_done_r) ? 32'h0 : acc[ll];
 
                 if (!precision) begin
                     // BF16 mode
-                    mac_fp32_wA = bf16_to_fp32(mac_w[31:16]);
-                    mac_fp32_wB = bf16_to_fp32(mac_w[15:0]);
-                    mac_fp32_aA = bf16_to_fp32(act_data[31:16]);
-                    mac_fp32_aB = bf16_to_fp32(act_data[15:0]);
-                    mac_prodA   = fp32_mul(mac_fp32_wA, mac_fp32_aA);
-                    mac_prodB   = fp32_mul(mac_fp32_wB, mac_fp32_aB);
-                    mac_new     = fp32_add(fp32_add(mac_base, mac_prodA), mac_prodB);
+                    fp32_wA_v = bf16_to_fp32(mac_w_v[31:16]);
+                    fp32_wB_v = bf16_to_fp32(mac_w_v[15:0]);
+                    fp32_aA_v = bf16_to_fp32(act_data[31:16]);
+                    fp32_aB_v = bf16_to_fp32(act_data[15:0]);
+                    prodA_v   = fp32_mul(fp32_wA_v, fp32_aA_v);
+                    prodB_v   = fp32_mul(fp32_wB_v, fp32_aB_v);
+                    mac_new_v = fp32_add(fp32_add(mac_base_v, prodA_v), prodB_v);
                 end else begin
                     // INT8 mode
-                    mac_new = int8_mac4(
-                        mac_w[31:24], mac_w[23:16], mac_w[15:8], mac_w[7:0],
+                    mac_new_v = int8_mac4(
+                        mac_w_v[31:24], mac_w_v[23:16], mac_w_v[15:8], mac_w_v[7:0],
                         act_data[31:24], act_data[23:16], act_data[15:8], act_data[7:0],
-                        mac_base
+                        mac_base_v
                     );
                 end
-                acc[l] <= mac_new;
+                acc[ll] <= mac_new_v;
             end
         end
     end
@@ -233,10 +239,14 @@ module mac_array_16lane (
             result_reg   <= 512'h0;
             result_vld_r <= 1'b0;
         end else begin
-            result_vld_r <= mac_drain;
             if (mac_drain) begin
-                for (l = 0; l < LANES; l++)
-                    result_reg[32*l +: 32] <= acc[l];
+                // Snapshot accumulators and assert valid (sticky until next mac_en)
+                result_vld_r <= 1'b1;
+                for (int ll = 0; ll < LANES; ll++)
+                    result_reg[32*ll +: 32] <= acc[ll];
+            end else if (mac_en) begin
+                // New MAC operation started — clear stale valid
+                result_vld_r <= 1'b0;
             end
         end
     end

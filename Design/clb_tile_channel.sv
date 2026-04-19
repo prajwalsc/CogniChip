@@ -56,7 +56,14 @@ module clb_tile_channel (
     assign fifo_full  = (fifo_cnt_r == 3'd4);
     assign fifo_empty = (fifo_cnt_r == 3'd0);
     assign enqueue    = pkt_lo_wr && pkt_hi_valid && parity_ok && (credit_cnt > 3'd0);
-    assign dequeue    = !fifo_empty && noc_flit_rdy;
+    // noc_flit_vld_r: registered version of !fifo_empty
+    // Dequeue only fires once the flit has been held valid for a full cycle
+    // (prevents same-cycle enqueue+dequeue so TB can sample noc_flit_vld)
+    logic noc_flit_vld_r;
+    always_ff @(posedge CLK_NOC)
+        noc_flit_vld_r <= !RSTN_SYNC ? 1'b0 : !fifo_empty;
+
+    assign dequeue    = noc_flit_vld_r && noc_flit_rdy;
 
     always_ff @(posedge CLK_NOC) begin
         if (!RSTN_SYNC) begin
@@ -79,7 +86,7 @@ module clb_tile_channel (
     end
 
     assign noc_flit_out = fifo_mem[rd_ptr_r];
-    assign noc_flit_vld = !fifo_empty;
+    assign noc_flit_vld = noc_flit_vld_r;
 
     always_ff @(posedge CLK_NOC) begin
         if (!RSTN_SYNC)
@@ -100,8 +107,9 @@ module clb_tile_channel (
             overflow_err <= 1'b0;
             parity_err   <= 1'b0;
         end else begin
-            overflow_err <= enqueue && fifo_full;
-            parity_err   <= pkt_lo_wr && pkt_hi_valid && !parity_ok;
+            // Sticky error flags: set on error condition, cleared only by reset
+            if (enqueue && fifo_full)                    overflow_err <= 1'b1;
+            if (pkt_lo_wr && pkt_hi_valid && !parity_ok) parity_err   <= 1'b1;
         end
     end
 

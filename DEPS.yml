@@ -45,3 +45,17 @@ bench_cx_decode_unit:
     - Design/cx_decode_unit.sv
     - Design/tb_cx_decode_unit.sv
   top: tb_cx_decode_unit
+
+bench_cogniv_system:
+  deps:
+    - Design/icg_cell.sv
+    - Design/cx_decode_unit.sv
+    - Design/epc_softmax_topk.sv
+    - Design/tile_sram_256kb.sv
+    - Design/mac_array_16lane.sv
+    - Design/clb_tile_channel.sv
+    - Design/noc_router_xy.sv
+    - Design/tile_local_ctrl.sv
+    - Design/cogniv_system.sv
+    - Design/tb_cogniv_system.sv
+  top: tb_cogniv_system

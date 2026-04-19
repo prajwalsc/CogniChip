@@ -98,9 +98,9 @@ module tile_local_ctrl (
         case (state_r)
             ST_IDLE: begin
                 if (noc_flit_in_vld) begin
-                    if (pkt_opcode == 4'hF)
+                    if (pkt_opcode == 4'h0)
                         state_next = ST_CFG;
-                    else if (pkt_opcode == 4'h0)
+                    else if (pkt_opcode == 4'h1 || pkt_opcode == 4'h2)
                         state_next = ST_MAC_LOAD;
                     // opcode mismatch / tile_id mismatch → stay IDLE (drop)
                 end
@@ -118,20 +118,30 @@ module tile_local_ctrl (
                     state_next = ST_MAC_EXEC;
             end
 
+            // sram_ecc_err_2b override: any active MAC state
+            // (error can arrive after MAC_LOAD if SRAM reports asynchronously)
+
             ST_MAC_EXEC: begin
-                if (opcode_r == 4'h2)
-                    state_next = ST_MAC_DRAIN;
-                else
+                if (sram_ecc_err_2b)
+                    state_next = ST_ERROR;
+                else if (opcode_r == 4'h2)
                     state_next = ST_MAC_LOAD;
+                else
+                    state_next = ST_MAC_DRAIN;
             end
 
             ST_MAC_DRAIN: begin
-                if (mac_result_vld)
+                if (sram_ecc_err_2b)
+                    state_next = ST_ERROR;
+                else if (mac_result_vld)
                     state_next = ST_RESULT_TX;
             end
 
             ST_RESULT_TX: begin
-                if (noc_flit_out_rdy)
+                // Hold in RESULT_TX for one full cycle (result_tx_ack_r) so
+                // downstream can observe noc_flit_out_vld for at least 1 cycle
+                // before the state transitions back to IDLE.
+                if (noc_flit_out_rdy && result_tx_ack_r)
                     state_next = ST_IDLE;
             end
 
@@ -189,13 +199,26 @@ module tile_local_ctrl (
     end
 
     // -------------------------------------------------------------------------
-    // cfg_reg update in CFG state
+    // cfg_reg update: capture during IDLE while flit is still valid.
+    // ST_CFG is a 1-cycle state; by the time state_r==ST_CFG the flit has
+    // already been de-asserted by the TB (noc_flit_in='0). Capturing in IDLE
+    // guarantees noc_flit_in[23:8] is the live ocfg field.
     // -------------------------------------------------------------------------
     always_ff @(posedge CLK_TILE) begin
         if (!RSTN_TILE)
             cfg_reg <= 32'h0;
-        else if (state_r == ST_CFG)
-            cfg_reg <= noc_flit_in[31:0]; // lower 32 bits carry config payload
+        else if ((state_r == ST_IDLE) && noc_flit_in_vld && (pkt_opcode == 4'h0))
+            cfg_reg <= {16'h0, noc_flit_in[23:8]};  // ocfg field at [23:8]
+    end
+
+    // result_tx_ack_r: registered flag set one cycle after entering RESULT_TX.
+    // The FSM requires this to be 1 before allowing the RESULT_TX→IDLE transition,
+    // ensuring noc_flit_out_vld is held for at least 2 cycles so the downstream
+    // can sample it.
+    logic result_tx_ack_r;
+    always_ff @(posedge CLK_TILE) begin
+        if (!RSTN_TILE) result_tx_ack_r <= 1'b0;
+        else            result_tx_ack_r <= (state_r == ST_RESULT_TX);
     end
 
     // -------------------------------------------------------------------------
@@ -229,8 +252,8 @@ module tile_local_ctrl (
     assign mac_act_data  = act_data_r;
 
     // Result flit output (assemble: token_id echoed, result data)
-    assign noc_flit_out     = {token_id_r, result_reg_r[95:0]};  // simplified assembly
-    assign noc_flit_out_vld = (state_r == ST_RESULT_TX);
+    assign noc_flit_out     = {8'h0, token_id_r, result_reg_r[87:0]};  // token echoed at [119:88] matching input pkt layout
+    assign noc_flit_out_vld = (state_r == ST_RESULT_TX) || result_tx_ack_r;
 
     // Status outputs
     assign tile_done  = (state_r == ST_RESULT_TX) && noc_flit_out_rdy;

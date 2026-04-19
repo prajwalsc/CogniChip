@@ -135,10 +135,16 @@ module noc_router_xy #(
     // Sequential: FIFO enqueue, dequeue, rdy_in update
     // -------------------------------------------------------------------------
     always_ff @(posedge CLK_NOC) begin : ff_main
+        // Variables hoisted to block scope for Verilator compatibility
+        // (declarations inside for-loop bodies are not reliably handled
+        //  in always_ff contexts by all tools)
+        int  sel_v, vc_v, op2_v, vc2_v;
+        logic ordy_v;
         if (!RSTN_SYNC) begin
             for (int p = 0; p < N_PORTS; p++) begin
                 rr_r[p] <= 0;
                 ri[p]   <= 1'b1;
+                ov_r[p] <= 1'b0;
                 for (int v = 0; v < VC_COUNT; v++) begin
                     owp[p][v]  <= 2'd0;
                     orp[p][v]  <= 2'd0;
@@ -149,15 +155,14 @@ module noc_router_xy #(
             // --- Enqueue: per output port, admit one winning input ---
             for (int op = 0; op < N_PORTS; op++) begin
                 for (int ii = 0; ii < N_PORTS; ii++) begin
-                    int sel, vc;
-                    sel = (rr_r[op] + ii) % N_PORTS;
-                    vc  = route_v[sel];
-                    if (vi[sel] && (route_p[sel] == op) &&
-                        (ocnt[op][vc] < 3'(FIFO_D))) begin
-                        ofifo[op][vc][owp[op][vc]] <= fi[sel];
-                        owp[op][vc]  <= owp[op][vc] + 2'd1;
-                        ocnt[op][vc] <= ocnt[op][vc] + 3'd1;
-                        rr_r[op]     <= (rr_r[op] + ii + 1) % N_PORTS;
+                    sel_v = (rr_r[op] + ii) % N_PORTS;
+                    vc_v  = route_v[sel_v];
+                    if (vi[sel_v] && (route_p[sel_v] == op) &&
+                        (ocnt[op][vc_v] < 3'(FIFO_D))) begin
+                        ofifo[op][vc_v][owp[op][vc_v]] <= fi[sel_v];
+                        owp[op][vc_v]  <= owp[op][vc_v] + 2'd1;
+                        ocnt[op][vc_v] <= ocnt[op][vc_v] + 3'd1;
+                        rr_r[op]       <= (rr_r[op] + ii + 1) % N_PORTS;
                         break;
                     end
                 end
@@ -167,13 +172,17 @@ module noc_router_xy #(
             for (int op = 0; op < N_PORTS; op++) begin
                 logic ordy;
                 case (op)
-                    P_WEST:  ordy = rdy_out_west;
-                    P_EAST:  ordy = rdy_out_east;
-                    P_NORTH: ordy = rdy_out_north;
-                    P_SOUTH: ordy = rdy_out_south;
-                    default: ordy = rdy_out_local;
+                    P_WEST:  ordy_v = rdy_out_west;
+                    P_EAST:  ordy_v = rdy_out_east;
+                    P_NORTH: ordy_v = rdy_out_north;
+                    P_SOUTH: ordy_v = rdy_out_south;
+                    default: ordy_v = rdy_out_local;
                 endcase
-                if (ordy) begin
+                // Only dequeue when ov_r is set (flit has been presented
+                // for one full cycle) AND downstream is ready.
+                // This ensures the receiver has at least one clock cycle
+                // to sample vld_out before the flit is consumed.
+                if (ov_r[op] && ordy_v) begin
                     if (ocnt[op][0] > 3'd0) begin
                         orp[op][0]  <= orp[op][0] + 2'd1;
                         ocnt[op][0] <= ocnt[op][0] - 3'd1;
@@ -186,11 +195,14 @@ module noc_router_xy #(
 
             // --- rdy_in: assert when chosen output VC has space ---
             for (int ip = 0; ip < N_PORTS; ip++) begin
-                int op2, vc2;
-                op2 = route_p[ip];
-                vc2 = route_v[ip];
-                ri[ip] <= (ocnt[op2][vc2] < 3'(FIFO_D));
+                op2_v = route_p[ip];
+                vc2_v = route_v[ip];
+                ri[ip] <= (ocnt[op2_v][vc2_v] < 3'(FIFO_D));
             end
+
+            // --- Register ov_arr so dequeue fires one cycle after enqueue ---
+            for (int op = 0; op < N_PORTS; op++)
+                ov_r[op] <= ov_arr[op];
         end
     end
 
@@ -199,6 +211,11 @@ module noc_router_xy #(
     // -------------------------------------------------------------------------
     logic [FLIT_W-1:0] of_arr [0:N_PORTS-1];
     logic               ov_arr [0:N_PORTS-1];
+
+    // Registered output-valid: dequeue only fires AFTER the flit has been
+    // visible for one full cycle (prevents same-cycle enqueue+dequeue draining
+    // the flit before the downstream receiver can observe it).
+    logic ov_r [0:N_PORTS-1];  // registered ov_arr — dequeue only fires after flit held 1 cycle
 
     always_comb begin
         for (int op = 0; op < N_PORTS; op++) begin

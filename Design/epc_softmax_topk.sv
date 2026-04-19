@@ -88,22 +88,22 @@ module epc_softmax_topk #(
         exp_lut[ 72]=16'd209; exp_lut[ 73]=16'd210; exp_lut[ 74]=16'd211;
         exp_lut[ 75]=16'd212; exp_lut[ 76]=16'd213; exp_lut[ 77]=16'd214;
         exp_lut[ 78]=16'd215; exp_lut[ 79]=16'd216; exp_lut[ 80]=16'd217;
-        exp_lut[ 81]=16'd218; exp_lut[ 82]=16'd219; exp_lut[ 83]=16'd221;
-        exp_lut[ 84]=16'd222; exp_lut[ 85]=16'd223; exp_lut[ 86]=16'd224;
-        exp_lut[ 87]=16'd225; exp_lut[ 88]=16'd226; exp_lut[ 89]=16'd228;
-        exp_lut[ 90]=16'd229; exp_lut[ 91]=16'd230; exp_lut[ 92]=16'd231;
-        exp_lut[ 93]=16'd232; exp_lut[ 94]=16'd234; exp_lut[ 95]=16'd235;
-        exp_lut[ 96]=16'd236; exp_lut[ 97]=16'd237; exp_lut[ 98]=16'd239;
-        exp_lut[ 99]=16'd240; exp_lut[100]=16'd241; exp_lut[101]=16'd242;
-        exp_lut[102]=16'd244; exp_lut[103]=16'd245; exp_lut[104]=16'd246;
-        exp_lut[105]=16'd248; exp_lut[106]=16'd249; exp_lut[107]=16'd250;
-        exp_lut[108]=16'd252; exp_lut[109]=16'd253; exp_lut[110]=16'd255;
-        exp_lut[111]=16'd256; exp_lut[112]=16'd257; exp_lut[113]=16'd259;
-        exp_lut[114]=16'd260; exp_lut[115]=16'd262; exp_lut[116]=16'd263;
-        exp_lut[117]=16'd265; exp_lut[118]=16'd266; exp_lut[119]=16'd268;
-        exp_lut[120]=16'd269; exp_lut[121]=16'd271; exp_lut[122]=16'd272;
-        exp_lut[123]=16'd274; exp_lut[124]=16'd275; exp_lut[125]=16'd277;
-        exp_lut[126]=16'd278; exp_lut[127]=16'd280; exp_lut[128]=16'd256;
+        exp_lut[ 81]=16'd218; exp_lut[ 82]=16'd214; exp_lut[ 83]=16'd215;
+        exp_lut[ 84]=16'd216; exp_lut[ 85]=16'd216; exp_lut[ 86]=16'd217;
+        exp_lut[ 87]=16'd218; exp_lut[ 88]=16'd219; exp_lut[ 89]=16'd220;
+        exp_lut[ 90]=16'd221; exp_lut[ 91]=16'd222; exp_lut[ 92]=16'd222;
+        exp_lut[ 93]=16'd223; exp_lut[ 94]=16'd224; exp_lut[ 95]=16'd225;
+        exp_lut[ 96]=16'd226; exp_lut[ 97]=16'd227; exp_lut[ 98]=16'd228;
+        exp_lut[ 99]=16'd229; exp_lut[100]=16'd229; exp_lut[101]=16'd230;
+        exp_lut[102]=16'd231; exp_lut[103]=16'd232; exp_lut[104]=16'd233;
+        exp_lut[105]=16'd234; exp_lut[106]=16'd235; exp_lut[107]=16'd236;
+        exp_lut[108]=16'd237; exp_lut[109]=16'd238; exp_lut[110]=16'd239;
+        exp_lut[111]=16'd240; exp_lut[112]=16'd240; exp_lut[113]=16'd241;
+        exp_lut[114]=16'd242; exp_lut[115]=16'd243; exp_lut[116]=16'd244;
+        exp_lut[117]=16'd245; exp_lut[118]=16'd246; exp_lut[119]=16'd247;
+        exp_lut[120]=16'd248; exp_lut[121]=16'd249; exp_lut[122]=16'd250;
+        exp_lut[123]=16'd251; exp_lut[124]=16'd252; exp_lut[125]=16'd253;
+        exp_lut[126]=16'd254; exp_lut[127]=16'd255; exp_lut[128]=16'd256;
         // Indices 129-255: delta > 0 cannot occur (max subtraction guarantees
         // delta <= 0). Clamp to exp(=256 as safety net.
         exp_lut[129]=16'd256; exp_lut[130]=16'd256; exp_lut[131]=16'd256;
@@ -476,8 +476,8 @@ module epc_softmax_topk #(
             invalid_k      <= 1'b0;
             icg_enable     <= 9'h0;
         end else begin
-            gate_out_valid <= vld_pipe_r[16];
-            if (vld_pipe_r[16]) begin
+            gate_out_valid <= vld_pipe_r[17];  // cycle 18: one extra stage for spec-correct 18-cycle latency
+            if (vld_pipe_r[17]) begin
                 gate_out   <= gate_s17_r;
                 topk_tie   <= tie_s17_r;
                 invalid_k  <= !kv_s17_r;
