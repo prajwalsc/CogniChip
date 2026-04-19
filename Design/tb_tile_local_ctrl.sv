@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // File:        tb_tile_local_ctrl.sv
 // Description: Unit testbench for tile_local_ctrl
 //              REQ-007: initial state=IDLE, noc_flit_in_rdy=1
@@ -29,9 +29,15 @@ module tb_tile_local_ctrl;
         else begin $display("FAIL [%0t] %s: got=%03b exp=%03b",$time,msg,got,exp); fail_cnt++; end
     endtask
     function automatic logic[127:0] build_pkt(
-        input logic[3:0] opc,tid; input logic[15:0] ocfg;
-        input logic[31:0] wtag,act,tok);
-        logic[127:0] p; p[3:0]=opc; p[7:4]=tid; p[23:8]=ocfg;
+        input logic[3:0]  opc,
+        input logic[3:0]  tid,
+        input logic[15:0] ocfg,
+        input logic[31:0] wtag,
+        input logic[31:0] act,
+        input logic[31:0] tok);
+        logic[127:0] p;
+        p = '0;
+        p[3:0]=opc; p[7:4]=tid; p[23:8]=ocfg;
         p[55:24]=wtag; p[87:56]=act; p[119:88]=tok; p[123:120]=4'h0; p[127:124]=4'h0;
         p[127:124]={^p[123:93],^p[92:62],^p[61:31],^p[30:0]}; return p;
     endfunction
@@ -67,11 +73,11 @@ module tb_tile_local_ctrl;
         token=32'hDEAD_0007;
         send_flit(build_pkt(4'h1,4'h0,16'h0000,32'h0010,32'hBF80_3F80,token));
         @(posedge CLK_TILE); #0.05;
-        begin int t=0; while(!mac_en && t<50) begin @(posedge CLK_TILE); #0.05; t++; end
+        begin automatic int t=0; while(!mac_en && t<50) begin @(posedge CLK_TILE); #0.05; t++; end
             chk("TV-007 mac_en",mac_en,1'b1); end
         @(posedge CLK_TILE); #0.05; mac_result_vld=1;
         @(posedge CLK_TILE); #0.05; mac_result_vld=0;
-        begin int t=0; while(!tile_done && t<50) begin @(posedge CLK_TILE); #0.05; t++; end
+        begin automatic int t=0; while(!tile_done && t<50) begin @(posedge CLK_TILE); #0.05; t++; end
             chk("TV-007 tile_done",tile_done,1'b1); end
         @(posedge CLK_TILE); #0.05;
         if(noc_flit_out_vld) chk("TV-007 token echo",logic'(noc_flit_out[119:88]==token),1'b1);
@@ -84,7 +90,7 @@ module tb_tile_local_ctrl;
         send_flit(build_pkt(4'h1,4'h0,16'h0,32'h0020,32'h0,32'hDEAD_0010));
         repeat(4) @(posedge CLK_TILE); #0.05;
         sram_ecc_err_2b=1; @(posedge CLK_TILE); #0.05; sram_ecc_err_2b=0;
-        begin int t=0; while(tlc_state!=3'b111 && t<30) begin @(posedge CLK_TILE); #0.05; t++; end
+        begin automatic int t=0; while(tlc_state!=3'b111 && t<30) begin @(posedge CLK_TILE); #0.05; t++; end
             chk3("TV-010 ERROR state",tlc_state,3'b111); end
         chk("TV-010 tile_error=1",tile_error,1'b1);
         RSTN_TILE=0; repeat(3) @(posedge CLK_TILE); RSTN_TILE=1; repeat(2) @(posedge CLK_TILE); #0.05;
@@ -96,7 +102,7 @@ module tb_tile_local_ctrl;
         repeat(3) @(posedge CLK_TILE); #0.05;
         sram_ecc_err_1b=1; @(posedge CLK_TILE); #0.05; sram_ecc_err_1b=0;
         mac_result_vld=1; @(posedge CLK_TILE); #0.05; mac_result_vld=0;
-        begin int t=0; while(!tile_done && t<50) begin @(posedge CLK_TILE); #0.05; t++; end
+        begin automatic int t=0; while(!tile_done && t<50) begin @(posedge CLK_TILE); #0.05; t++; end
             chk("TV-009 tile_done",tile_done,1'b1); end
         chk("TV-009 no tile_error",tile_error,1'b0);
         wait_idle();
